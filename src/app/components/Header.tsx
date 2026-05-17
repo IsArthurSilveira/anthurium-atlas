@@ -22,7 +22,7 @@ export default function Header() {
       <div className="flex items-center gap-3">
         <Compass className="w-5 h-5 text-[#c5a059]" />
         <Link href="/" className="text-xs tracking-[0.25em] uppercase font-bold text-white hover:text-[#c5a059] transition-colors">
-          Anthurium <span className="text-[#c5a059] font-normal">// Grimório</span>
+          Anthurium <span className="text-[#c5a059] font-normal">// Lore Aberta</span>
         </Link>
       </div>
 
