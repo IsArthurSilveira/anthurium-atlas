@@ -4,10 +4,11 @@ import React from 'react';
 import { X, ChevronLeft, ChevronRight, ImageIcon } from 'lucide-react';
 
 interface Lugar {
+  id?: string;
   nome: string;
-  descricaoBreve: string;
-  descricaoCompleta: string;
-  imagens: string[];
+  descricaoBreve?: string;
+  descricaoCompleta?: string;
+  imagens?: string[];
 }
 
 interface Props {
@@ -16,18 +17,22 @@ interface Props {
   onClose: () => void;
   modoMestre?: boolean;
   onSave?: (l: Lugar) => void;
+  onDelete?: (id: string) => void | Promise<void>;
 }
 
-export default function PlaceModal({ lugar, abrir, onClose, modoMestre, onSave }: Props) {
+export default function PlaceModal({ lugar, abrir, onClose, modoMestre, onSave, onDelete }: Props) {
   const [indice, setIndice] = React.useState(0);
   const [desc, setDesc] = React.useState('');
   const [imagens, setImagens] = React.useState<string[]>([]);
   const [toast, setToast] = React.useState<{ message: string; type?: 'error' | 'success' } | null>(null);
+  const [salvando, setSalvando] = React.useState(false);
+  const [confirmarExclusao, setConfirmarExclusao] = React.useState(false);
 
   React.useEffect(() => {
     setIndice(0);
     setDesc(lugar?.descricaoCompleta || '');
     setImagens(lugar?.imagens || []);
+    setConfirmarExclusao(false);
   }, [lugar]);
 
   React.useEffect(() => {
@@ -37,6 +42,40 @@ export default function PlaceModal({ lugar, abrir, onClose, modoMestre, onSave }
   }, [toast]);
 
   if (!abrir || !lugar) return null;
+
+  const handleSave = async () => {
+    setSalvando(true);
+    try {
+      const updated: Lugar = { ...(lugar as any), descricaoCompleta: desc, imagens } as Lugar;
+      if (typeof onSave === 'function') {
+        await onSave(updated);
+      }
+      setToast({ message: 'Salvo com sucesso.', type: 'success' });
+      setTimeout(() => onClose(), 600);
+    } catch (err) {
+      console.error('Erro ao salvar lugar:', err);
+      setToast({ message: 'Erro ao salvar. Tente novamente.', type: 'error' });
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!lugar?.id || typeof onDelete !== 'function') return;
+
+    setSalvando(true);
+    try {
+      await onDelete(lugar.id);
+      setToast({ message: 'Lugar excluído com sucesso.', type: 'success' });
+      setTimeout(() => onClose(), 600);
+    } catch (err) {
+      console.error('Erro ao excluir lugar:', err);
+      setToast({ message: 'Erro ao excluir. Tente novamente.', type: 'error' });
+    } finally {
+      setSalvando(false);
+      setConfirmarExclusao(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4" onClick={onClose}>
@@ -139,9 +178,21 @@ export default function PlaceModal({ lugar, abrir, onClose, modoMestre, onSave }
             </div>
 
             {modoMestre && (
-              <div className="flex justify-end gap-2">
-                <button onClick={() => onClose()} className="px-3 py-1 text-xs rounded border border-[#22242b] text-zinc-300">Cancelar</button>
-                <button onClick={() => { const updated: Lugar = { ...(lugar as any), descricaoCompleta: desc, imagens } as Lugar; if (typeof onSave === 'function') onSave(updated); setToast({ message: 'Salvo com sucesso.', type: 'success' }); setTimeout(() => onClose(), 600); }} className="px-3 py-1 text-xs rounded bg-[#c5a059] text-black">Salvar</button>
+              <div className="flex flex-wrap justify-end gap-2">
+                {lugar.id && onDelete && (
+                  confirmarExclusao ? (
+                    <>
+                      <button onClick={() => setConfirmarExclusao(false)} disabled={salvando} className="px-3 py-1 text-xs rounded border border-[#22242b] text-zinc-300 disabled:opacity-50">Cancelar exclusão</button>
+                      <button onClick={handleDelete} disabled={salvando} className="px-3 py-1 text-xs rounded bg-red-600 text-white disabled:opacity-50">{salvando ? 'Excluindo...' : 'Confirmar exclusão'}</button>
+                    </>
+                  ) : (
+                    <button onClick={() => setConfirmarExclusao(true)} disabled={salvando} className="px-3 py-1 text-xs rounded border border-red-500/60 text-red-300 hover:bg-red-500/10 disabled:opacity-50">
+                      Excluir
+                    </button>
+                  )
+                )}
+                <button onClick={() => onClose()} disabled={salvando} className="px-3 py-1 text-xs rounded border border-[#22242b] text-zinc-300 disabled:opacity-50">Cancelar</button>
+                <button onClick={handleSave} disabled={salvando} className="px-3 py-1 text-xs rounded bg-[#c5a059] text-black disabled:opacity-50">{salvando ? 'Salvando...' : 'Salvar'}</button>
               </div>
             )}
           </div>

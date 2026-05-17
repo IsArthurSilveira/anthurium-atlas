@@ -12,14 +12,20 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMestre } from '../../../../../components/MestreContext';
 import {
+  listNacoes,
+  upsertNacao,
+  deleteNacao,
   listLugares,
   addLugar,
+  deleteLugar,
   listEtnias,
   addEtnia,
+  deleteEtnia,
   listNpcs,
   addNpc,
 } from '../../../../../../lib/api/mockAdapters';
 import { updateLugar } from '../../../../../../lib/api/mockAdapters';
+import { updateEtnia } from '../../../../../../lib/api/mockAdapters';
 
 interface Plano {
   id: string;
@@ -41,16 +47,19 @@ interface Nacao {
 }
 
 interface Etnia {
+  id?: string;
   nome: string;
-  descricao: string;
-  afinidades: string[];
+  descricao?: string;
+  afinidades?: string[];
+  imagens?: string[];
 }
 
 interface Lugar {
+  id?: string;
   nome: string;
-  descricaoBreve: string;
-  descricaoCompleta: string;
-  imagens: string[];
+  descricaoBreve?: string;
+  descricaoCompleta?: string;
+  imagens?: string[];
 }
 
 const planosIniciais: Plano[] = [
@@ -58,11 +67,6 @@ const planosIniciais: Plano[] = [
   { id: 'eter', nome: 'O Éter (O Turbilhão)', descricaoCurta: 'Oceano infinito de luz, som e potencial criativo bruto.', lore: 'A fonte de onde a magia vem.' },
   { id: 'substrato', nome: 'O Substrato (O Silêncio)', descricaoCurta: 'A Anti-Existência que circunda a realidade.', lore: 'Se o Éter é "Tudo", o Substrato é "Nada".' },
   { id: 'profundeza', nome: 'A Profundeza (O Mistério Submerso)', descricaoCurta: 'O plano de transição velado sob as ondas.', lore: 'O quarto plano, velado sob as ondas.' }
-];
-
-const nacoesIniciais: Nacao[] = [
-  { id: 'crystallinum', planoId: 'plano-material', nome: 'Crystallinum', lema: 'A Nitidez no Reflexo do Éter', climaEmocional: 'Frieza analítica e melancolia profunda.', cardeal: 'Naqua - A Senhora da Memória', etnias: 'Hyalin (Pele translúcida)', lore: 'Crystallinum é o centro do conhecimento histórico e medicinal de Anthurium...' },
-  { id: 'andraeanum', planoId: 'plano-material', nome: 'Andraeanum', lema: 'Crescer, florescer, devorar', climaEmocional: 'Euforia biológica.', cardeal: 'Eos - A Dama Vivaz', etnias: 'Xylid (Simbiontes)', lore: 'Andraeanum é uma selva predatória onde a vida cresce com velocidade aterrorizante...' }
 ];
 
 function resumirLore(nacao: Nacao) {
@@ -307,7 +311,7 @@ export default function NacaoPage() {
   const planoId = params.planoId as string;
   const nacaoId = params.nacaoId as string;
 
-  const [nacoes, setNacoes] = useState<Nacao[]>(nacoesIniciais);
+  const [nacoes, setNacoes] = useState<Nacao[]>([]);
   const [nacao, setNacao] = useState<Nacao | null>(null);
   const [abaAtiva, setAbaAtiva] = useState<AbaAtiva>('sociedade');
   const [editando, setEditando] = useState(false);
@@ -329,6 +333,9 @@ export default function NacaoPage() {
   const [lugaresList, setLugaresList] = useState<Lugar[]>([]);
   const [etniasList, setEtniasList] = useState<Etnia[]>([]);
   const [npcsList, setNpcsList] = useState<Array<{ nome: string; funcao: string }>>([]);
+  const [nacoesCarregadas, setNacoesCarregadas] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type?: 'error' | 'success' } | null>(null);
+  const [confirmarExclusaoNacao, setConfirmarExclusaoNacao] = useState(false);
 
   // form states for mock creation
   const [newLugarNome, setNewLugarNome] = useState('');
@@ -349,38 +356,56 @@ export default function NacaoPage() {
   ];
 
   useEffect(() => {
-    const localNacoes = localStorage.getItem('anthurium_nacoes');
-    if (localNacoes) setNacoes(JSON.parse(localNacoes));
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        localStorage.removeItem('anthurium_nacoes');
+        const remotas = await listNacoes();
+        setNacoes(remotas as Nacao[]);
+      } catch (err) {
+        console.warn('Erro carregando nações do Supabase:', err);
+        setNacoes([]);
+      } finally {
+        setNacoesCarregadas(true);
+      }
+    })();
   }, []);
 
   useEffect(() => {
+    if (!nacoesCarregadas) return;
     const encontrada = nacoes.find(n => n.id === nacaoId && n.planoId === planoId);
     if (encontrada) {
       setNacao(encontrada);
     } else {
       router.push(`/universo/atlas/${planoId}`);
     }
-  }, [nacaoId, planoId, nacoes, router]);
+  }, [nacaoId, planoId, nacoes, router, nacoesCarregadas]);
 
   // load dynamic lists for current nação
   useEffect(() => {
     if (!nacao) return;
-    try {
-      const l = listLugares(nacao.id) || [];
-      setLugaresList(l as Lugar[]);
-      const e = listEtnias(nacao.id) || [];
-      setEtniasList(e as Etnia[]);
-      const np = listNpcs(nacao.id) || [];
-      setNpcsList(np as Array<{ nome: string; funcao: string }>);
-    } catch (err) {
-      console.warn('Erro carregando dados mock', err);
-    }
+    (async () => {
+      try {
+        const l = await listLugares(nacao.id);
+        setLugaresList(l || []);
+        const e = await listEtnias(nacao.id);
+        setEtniasList(e || []);
+        const np = await listNpcs(nacao.id);
+        setNpcsList(np?.map(n => ({ nome: n.nome, funcao: n.funcao || '' })) || []);
+      } catch (err) {
+        console.warn('Erro carregando dados do Supabase', err);
+      }
+    })();
   }, [nacao]);
 
-  const salvarNacao = () => {
+  const salvarNacao = async () => {
     if (!nacao) return;
     
-    let nLista = [...nacoes];
     const dNacao: Nacao = {
       id: nacao.id,
       planoId,
@@ -392,11 +417,30 @@ export default function NacaoPage() {
       etnias: fEtnias,
       lore: fLore
     };
-    nLista = nLista.map(n => n.id === nacao.id ? dNacao : n);
-    setNacoes(nLista);
-    setNacao(dNacao);
-    localStorage.setItem('anthurium_nacoes', JSON.stringify(nLista));
-    setEditando(false);
+
+    try {
+      const salva = await upsertNacao(dNacao as any);
+      setNacoes(prev => prev.map(n => n.id === nacao.id ? (salva as Nacao) : n));
+      setNacao(salva as Nacao);
+      setToast({ message: 'Nação salva com sucesso.', type: 'success' });
+      setEditando(false);
+    } catch (err) {
+      console.error('Erro ao salvar nação no Supabase:', err);
+      setToast({ message: 'Nao foi possivel salvar no banco. Confira RLS/policies e UUID.', type: 'error' });
+    }
+  };
+
+  const excluirNacao = async () => {
+    try {
+      await deleteNacao(nacao!.id);
+      setToast({ message: 'Nação excluída com sucesso.', type: 'success' });
+      setTimeout(() => router.push(`/universo/atlas/${planoId}`), 500);
+    } catch (err) {
+      console.error('Erro ao excluir nação:', err);
+      setToast({ message: 'Nao foi possivel excluir a nação.', type: 'error' });
+    } finally {
+      setConfirmarExclusaoNacao(false);
+    }
   };
 
   const ativarEdicao = () => {
@@ -411,7 +455,7 @@ export default function NacaoPage() {
     setEditando(true);
   };
 
-  if (!nacao) {
+  if (!nacoesCarregadas || !nacao) {
     return <div className="flex-1 flex items-center justify-center text-zinc-500">Carregando...</div>;
   }
 
@@ -436,45 +480,22 @@ export default function NacaoPage() {
         return (
           <div className="space-y-4">
             <h3 className="text-lg font-light text-white">Sociedade & Geografia</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              {nacao.descricaoCurta || resumirLore(nacao)}
-            </p>
+            <p className="text-xs text-zinc-300 leading-relaxed">{nacao.descricaoCurta || resumirLore(nacao)}</p>
+
             <div className="flex items-center justify-between">
               <div />
               {modoMestre && (
                 <div className="mb-2">
                   <button
                     type="button"
-                    onClick={() => setShowAddLugar(s => !s)}
+                    onClick={() => setLugarSelecionado({ nome: '', descricaoBreve: '', descricaoCompleta: '', imagens: [] } as Lugar)}
                     className="px-3 py-1 text-xs rounded border border-[#22242b] text-zinc-300 hover:bg-[#111216]"
                   >
-                    {showAddLugar ? 'Fechar' : 'Adicionar Lugar'}
+                    Adicionar Lugar
                   </button>
                 </div>
               )}
             </div>
-
-            {showAddLugar && modoMestre && (
-              <div className="mb-3 p-3 border border-[#1b1c22] rounded bg-[#0f1114]">
-                <input value={newLugarNome} onChange={e => setNewLugarNome(e.target.value)} placeholder="Nome do Lugar" className="w-full mb-2 p-2 bg-[#111216] border border-[#22242b] rounded text-sm text-white" />
-                <input value={newLugarDescBreve} onChange={e => setNewLugarDescBreve(e.target.value)} placeholder="Descrição breve" className="w-full mb-2 p-2 bg-[#111216] border border-[#22242b] rounded text-sm text-white" />
-                <textarea value={newLugarDescCompleta} onChange={e => setNewLugarDescCompleta(e.target.value)} placeholder="Descrição completa" rows={3} className="w-full p-2 bg-[#111216] border border-[#22242b] rounded text-sm text-white" />
-                <div className="mt-2 text-right">
-                  <button
-                    onClick={() => {
-                      if (!nacao) return;
-                      const novo = addLugar(nacao.id, { nome: newLugarNome, descricaoBreve: newLugarDescBreve, descricaoCompleta: newLugarDescCompleta, imagens: [] });
-                      setLugaresList(prev => [...prev, (novo as any)]);
-                      setNewLugarNome(''); setNewLugarDescBreve(''); setNewLugarDescCompleta('');
-                      setShowAddLugar(false);
-                    }}
-                    className="px-3 py-1 text-xs rounded bg-[#c5a059] text-black"
-                  >
-                    Criar (mock)
-                  </button>
-                </div>
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-3 pt-2">
               {lugaresToShow.map(lugar => (
@@ -483,34 +504,24 @@ export default function NacaoPage() {
             </div>
           </div>
         );
+
       case 'teologia':
         return (
           <div className="space-y-4">
             <TheologyCard teologia={teologia} demografia={demografia} modoMestre={modoMestre} />
           </div>
         );
+
       case 'etnias':
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-light text-white">Etnias Nativas</h3>
               {modoMestre && (
-                <button type="button" onClick={() => setShowAddEtnia(s => !s)} className="px-3 py-1 text-xs rounded border border-[#22242b] text-zinc-300 hover:bg-[#111216]">{showAddEtnia ? 'Fechar' : 'Adicionar Etnia'}</button>
+                <button type="button" onClick={() => setEtniaSelecionada({ nome: '', descricao: '', afinidades: [], imagens: [] } as Etnia)} className="px-3 py-1 text-xs rounded border border-[#22242b] text-zinc-300 hover:bg-[#111216]">Adicionar Etnia</button>
               )}
             </div>
 
-            {showAddEtnia && modoMestre && (
-              <div className="p-3 border border-[#1b1c22] rounded bg-[#0f1114] mb-3">
-                <input value={newEtniaNome} onChange={e => setNewEtniaNome(e.target.value)} placeholder="Nome da Etnia" className="w-full mb-2 p-2 bg-[#111216] border border-[#22242b] rounded text-sm text-white" />
-                <textarea value={newEtniaDesc} onChange={e => setNewEtniaDesc(e.target.value)} placeholder="Descrição" rows={3} className="w-full p-2 bg-[#111216] border border-[#22242b] rounded text-sm text-white" />
-                <div className="mt-2 text-right"><button onClick={() => {
-                  if (!nacao) return;
-                  const novo = addEtnia(nacao.id, { nome: newEtniaNome, descricao: newEtniaDesc, afinidades: [] });
-                  setEtniasList(prev => [...prev, (novo as any)]);
-                  setNewEtniaNome(''); setNewEtniaDesc(''); setShowAddEtnia(false);
-                }} className="px-3 py-1 text-xs rounded bg-[#c5a059] text-black">Criar (mock)</button></div>
-              </div>
-            )}
             <div className="grid grid-cols-2 gap-3">
               {etniasToShow.map(etnia => (
                 <EthniaCard key={(etnia as any).id ?? etnia.nome} etnia={etnia as any} onOpen={(e) => setEtniaSelecionada(e)} modoMestre={modoMestre} />
@@ -518,9 +529,59 @@ export default function NacaoPage() {
             </div>
           </div>
         );
+
       default:
         return null;
     }
+  };
+
+  // handlers for modal-save
+  const handlePlaceSave = async (l: Lugar) => {
+    if (!nacao) return;
+    try {
+      if ((l as any).id) {
+        // existing: update
+        const updated = await updateLugar(nacao.id, l as any);
+        setLugaresList(prev => prev.map(p => (p as any).id === (l as any).id ? updated : p));
+      } else {
+        // new: insert
+        const novo = await addLugar(nacao.id, { nome: l.nome, descricaoBreve: l.descricaoBreve, descricaoCompleta: l.descricaoCompleta, imagens: l.imagens || [] });
+        setLugaresList(prev => [...prev, (novo as any)]);
+      }
+      setLugarSelecionado(null);
+    } catch (err) {
+      console.error('Erro ao salvar lugar:', err);
+    }
+  };
+
+  const handlePlaceDelete = async (id: string) => {
+    if (!nacao) return;
+    await deleteLugar(nacao.id, id);
+    setLugaresList(prev => prev.filter(l => (l as any).id !== id));
+    setLugarSelecionado(null);
+  };
+
+  const handleEtniaSave = async (e: Etnia) => {
+    if (!nacao) return;
+    try {
+      if ((e as any).id) {
+        const updated = await updateEtnia(nacao.id, e as any);
+        setEtniasList(prev => prev.map(x => (x as any).id === (e as any).id ? updated : x));
+      } else {
+        const novo = await addEtnia(nacao.id, { nome: e.nome, descricao: e.descricao, afinidades: e.afinidades || [], imagens: e.imagens || [] });
+        setEtniasList(prev => [...prev, (novo as any)]);
+      }
+      setEtniaSelecionada(null);
+    } catch (err) {
+      console.error('Erro ao salvar etnia:', err);
+    }
+  };
+
+  const handleEtniaDelete = async (id: string) => {
+    if (!nacao) return;
+    await deleteEtnia(nacao.id, id);
+    setEtniasList(prev => prev.filter(e => (e as any).id !== id));
+    setEtniaSelecionada(null);
   };
 
   return (
@@ -555,6 +616,36 @@ export default function NacaoPage() {
               </button>
             )}
           </div>
+          {modoMestre && editando && (
+            <div className="flex items-center gap-2 mt-4 flex-wrap">
+              {confirmarExclusaoNacao ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmarExclusaoNacao(false)}
+                    className="px-4 py-2 border border-[#22242b] rounded text-xs text-zinc-400 hover:text-white"
+                  >
+                    Cancelar exclusão
+                  </button>
+                  <button
+                    type="button"
+                    onClick={excluirNacao}
+                    className="px-4 py-2 bg-red-600 text-white rounded text-xs hover:bg-red-500"
+                  >
+                    Confirmar exclusão
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmarExclusaoNacao(true)}
+                  className="px-4 py-2 border border-red-500/60 rounded text-xs text-red-300 hover:bg-red-500/10"
+                >
+                  Excluir nação
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-4 border-t border-[#1b1c22] pt-6 mb-8">
@@ -596,20 +687,18 @@ export default function NacaoPage() {
         </div>
       </div>
 
-      <EthniaModal etnia={etniaSelecionada} abrir={!!etniaSelecionada} onClose={() => setEtniaSelecionada(null)} modoMestre={modoMestre} />
+      <EthniaModal etnia={etniaSelecionada} abrir={!!etniaSelecionada} onClose={() => setEtniaSelecionada(null)} modoMestre={modoMestre} onSave={async (updated) => {
+        if (!nacao) return;
+        await handleEtniaSave(updated);
+      }} onDelete={handleEtniaDelete} />
 
       <PlaceModal
         lugar={lugarSelecionado}
         abrir={!!lugarSelecionado}
         onClose={() => setLugarSelecionado(null)}
         modoMestre={modoMestre}
-        onSave={(updated) => {
-          if (!nacao) return;
-          // persist via mock adapter
-          updateLugar(nacao.id, updated as any);
-          setLugaresList(prev => prev.map(l => ((l as any).id === (updated as any).id ? (updated as any) : l)));
-          setLugarSelecionado(updated as any);
-        }}
+        onDelete={handlePlaceDelete}
+        onSave={handlePlaceSave}
       />
 
       {/* Conteúdo Principal */}
@@ -621,7 +710,7 @@ export default function NacaoPage() {
                 <div className="flex items-center justify-between gap-4 mb-4">
                   <div>
                     <p className="text-[10px] tracking-[0.3em] text-[#c5a059] uppercase mb-2">Visão Geral</p>
-                    <h3 className="text-lg font-light text-white">Resumo da Nação</h3>
+                    <h3 className="text-lg font-light text-white">Descrição da Nação</h3>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] tracking-[0.3em] text-[#c5a059] uppercase">Clima</p>
@@ -692,12 +781,16 @@ export default function NacaoPage() {
                     <div className="p-2 mb-2 border border-[#1b1c22] rounded bg-[#0f1114]">
                       <input value={newNpcNome} onChange={e => setNewNpcNome(e.target.value)} placeholder="Nome NPC" className="w-full mb-1 p-2 bg-[#111216] border border-[#22242b] rounded text-sm text-white" />
                       <input value={newNpcFuncao} onChange={e => setNewNpcFuncao(e.target.value)} placeholder="Função" className="w-full mb-1 p-2 bg-[#111216] border border-[#22242b] rounded text-sm text-white" />
-                      <div className="text-right"><button onClick={() => {
+                      <div className="text-right"><button onClick={async () => {
                         if (!nacao) return;
-                        const novo = addNpc(nacao.id, { nome: newNpcNome, funcao: newNpcFuncao });
-                        setNpcsList(prev => [...prev, (novo as any)]);
-                        setNewNpcNome(''); setNewNpcFuncao(''); setShowAddNpc(false);
-                      }} className="px-3 py-1 text-xs rounded bg-[#c5a059] text-black">Criar (mock)</button></div>
+                        try {
+                          const novo = await addNpc(nacao.id, { nome: newNpcNome, funcao: newNpcFuncao });
+                          setNpcsList(prev => [...prev, (novo as any)]);
+                          setNewNpcNome(''); setNewNpcFuncao(''); setShowAddNpc(false);
+                        } catch (err) {
+                          console.error('Erro ao adicionar NPC:', err);
+                        }
+                      }} className="px-3 py-1 text-xs rounded bg-[#c5a059] text-black">Criar (Supabase)</button></div>
                     </div>
                   )}
                 <div className="grid grid-cols-2 gap-3">
@@ -780,6 +873,11 @@ export default function NacaoPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {toast && (
+        <div className={`fixed left-1/2 -translate-x-1/2 bottom-8 z-50 rounded-md px-4 py-2 ${toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-green-400 text-black'}`}>
+          {toast.message}
         </div>
       )}
     </div>

@@ -5,6 +5,7 @@ import { Plus, ArrowLeft, ShieldAlert, BookOpen } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMestre } from '../../../components/MestreContext';
+import { listNacoes, listPlanos } from '../../../../lib/api/mockAdapters';
 
 interface Plano {
   id: string;
@@ -25,18 +26,6 @@ interface Nacao {
   lore: string;
 }
 
-const planosIniciais: Plano[] = [
-  { id: 'plano-material', nome: 'O Plano Material (A Âncora)', descricaoCurta: 'A dimensão da solidez, da carne e do tempo linear.', lore: 'É onde nós estamos.' },
-  { id: 'eter', nome: 'O Éter (O Turbilhão)', descricaoCurta: 'Oceano infinito de luz, som e potencial criativo bruto.', lore: 'A fonte de onde a magia vem.' },
-  { id: 'substrato', nome: 'O Substrato (O Silêncio)', descricaoCurta: 'A Anti-Existência que circunda a realidade.', lore: 'Se o Éter é "Tudo", o Substrato é "Nada".' },
-  { id: 'profundeza', nome: 'A Profundeza (O Mistério Submerso)', descricaoCurta: 'O plano de transição velado sob as ondas.', lore: 'O quarto plano, velado sob as ondas.' }
-];
-
-const nacoesIniciais: Nacao[] = [
-  { id: 'crystallinum', planoId: 'plano-material', nome: 'Crystallinum', lema: 'A Nitidez no Reflexo do Éter', climaEmocional: 'Frieza analítica e melancolia profunda.', cardeal: 'Naqua - A Senhora da Memória', etnias: 'Hyalin (Pele translúcida)', lore: 'Crystallinum é o centro do conhecimento histórico e medicinal de Anthurium...' },
-  { id: 'andraeanum', planoId: 'plano-material', nome: 'Andraeanum', lema: 'Crescer, florescer, devorar', climaEmocional: 'Euforia biológica.', cardeal: 'Eos - A Dama Vivaz', etnias: 'Xylid (Simbiontes)', lore: 'Andraeanum é uma selva predatória onde a vida cresce com velocidade aterrorizante...' }
-];
-
 function resumirNacao(nacao: Nacao) {
   const fonte = nacao.descricaoCurta || nacao.lore;
   const texto = fonte.replace(/\s+/g, ' ').trim();
@@ -53,13 +42,41 @@ export default function AtlasPage() {
   const params = useParams();
   const planoId = params.planoId as string;
 
-  const planoAtivo = planosIniciais.find(p => p.id === planoId) || planosIniciais[0];
-  const [nacoes, setNacoes] = useState<Nacao[]>(nacoesIniciais);
+  const [planos, setPlanos] = useState<Plano[]>([]);
+  const [carregandoPlanos, setCarregandoPlanos] = useState(true);
+  const [nacoes, setNacoes] = useState<Nacao[]>([]);
+  const [carregandoNacoes, setCarregandoNacoes] = useState(true);
   const [nacaoSelecionada, setNacaoSelecionada] = useState<Nacao | null>(null);
 
+  const planoAtivo = planos.find(p => p.id === planoId);
+
   useEffect(() => {
-    const localNacoes = localStorage.getItem('anthurium_nacoes');
-    if (localNacoes) setNacoes(JSON.parse(localNacoes));
+    (async () => {
+      try {
+        const data = await listPlanos();
+        setPlanos(data as Plano[]);
+      } catch (err) {
+        console.warn('Erro carregando planos do Supabase:', err);
+        setPlanos([]);
+      } finally {
+        setCarregandoPlanos(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      localStorage.removeItem('anthurium_nacoes');
+      try {
+        const remotas = await listNacoes();
+        setNacoes(remotas as Nacao[]);
+      } catch (err) {
+        console.warn('Erro carregando nações do Supabase:', err);
+        setNacoes([]);
+      } finally {
+        setCarregandoNacoes(false);
+      }
+    })();
   }, []);
 
   const nacoesDoPlano = nacoes.filter(n => n.planoId === planoId);
@@ -76,8 +93,8 @@ export default function AtlasPage() {
             >
               <ArrowLeft className="w-4 h-4" /> Voltar às Camadas
             </Link>
-            <h2 className="text-2xl font-light text-white tracking-wide">{planoAtivo.nome}</h2>
-            <p className="text-xs text-zinc-500 mt-2 max-w-md">{planoAtivo.descricaoCurta}</p>
+            <h2 className="text-2xl font-light text-white tracking-wide">{planoAtivo?.nome || 'Plano'}</h2>
+            <p className="text-xs text-zinc-500 mt-2 max-w-md">{planoAtivo?.descricaoCurta || ''}</p>
           </div>
 
           {modoMestre && (
@@ -90,7 +107,16 @@ export default function AtlasPage() {
           )}
         </div>
 
-        {nacoesDoPlano.length > 0 ? (
+        {carregandoPlanos || carregandoNacoes ? (
+          <div className="border border-dashed border-[#1b1c22] p-16 rounded text-center">
+            <h3 className="text-sm text-zinc-400 mb-2">Carregando dados do banco...</h3>
+          </div>
+        ) : !planoAtivo ? (
+          <div className="border border-dashed border-[#1b1c22] p-16 rounded text-center">
+            <h3 className="text-sm text-zinc-400 mb-2">Plano não encontrado</h3>
+            <p className="text-xs text-zinc-600">Cadastre esse plano no banco para liberar o atlas.</p>
+          </div>
+        ) : nacoesDoPlano.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-12">
             {nacoesDoPlano.map(nacao => (
               <button
@@ -123,7 +149,7 @@ export default function AtlasPage() {
           <ShieldAlert className="w-4 h-4 text-amber-500/70 shrink-0 mt-1" />
           <div>
             <h4 className="text-xs font-medium text-zinc-400">Frequência Cartográfica</h4>
-            <p className="text-xs text-zinc-600 mt-1">Eco dimensional de {planoAtivo.nome}.</p>
+            <p className="text-xs text-zinc-600 mt-1">Eco dimensional de {planoAtivo?.nome || 'plano atual'}.</p>
           </div>
         </div>
       </div>

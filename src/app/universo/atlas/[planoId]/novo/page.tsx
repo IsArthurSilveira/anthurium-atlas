@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useMestre } from '../../../../../components/MestreContext';
+import { useMestre } from '../../../../components/MestreContext';
+import { upsertNacao, listPlanos } from '../../../../../lib/api/mockAdapters';
 
 interface Plano {
   id: string;
@@ -25,18 +26,6 @@ interface Nacao {
   lore: string;
 }
 
-const planosIniciais: Plano[] = [
-  { id: 'plano-material', nome: 'O Plano Material (A Âncora)', descricaoCurta: 'A dimensão da solidez, da carne e do tempo linear.', lore: 'É onde nós estamos.' },
-  { id: 'eter', nome: 'O Éter (O Turbilhão)', descricaoCurta: 'Oceano infinito de luz, som e potencial criativo bruto.', lore: 'A fonte de onde a magia vem.' },
-  { id: 'substrato', nome: 'O Substrato (O Silêncio)', descricaoCurta: 'A Anti-Existência que circunda a realidade.', lore: 'Se o Éter é "Tudo", o Substrato é "Nada".' },
-  { id: 'profundeza', nome: 'A Profundeza (O Mistério Submerso)', descricaoCurta: 'O plano de transição velado sob as ondas.', lore: 'O quarto plano, velado sob as ondas.' }
-];
-
-const nacoesIniciais: Nacao[] = [
-  { id: 'crystallinum', planoId: 'plano-material', nome: 'Crystallinum', lema: 'A Nitidez no Reflexo do Éter', climaEmocional: 'Frieza analítica e melancolia profunda.', cardeal: 'Naqua - A Senhora da Memória', etnias: 'Hyalin (Pele translúcida)', lore: 'Crystallinum é o centro do conhecimento histórico e medicinal de Anthurium...' },
-  { id: 'andraeanum', planoId: 'plano-material', nome: 'Andraeanum', lema: 'Crescer, florescer, devorar', climaEmocional: 'Euforia biológica.', cardeal: 'Eos - A Dama Vivaz', etnias: 'Xylid (Simbiontes)', lore: 'Andraeanum é uma selva predatória onde a vida cresce com velocidade aterrorizante...' }
-];
-
 export default function NovoNacaoPage() {
   const { modoMestre } = useMestre();
   const params = useParams();
@@ -56,7 +45,9 @@ export default function NovoNacaoPage() {
     );
   }
 
-  const planoAtivo = planosIniciais.find(p => p.id === planoId) || planosIniciais[0];
+  const [planos, setPlanos] = useState<Plano[]>([]);
+  const [carregandoPlanos, setCarregandoPlanos] = useState(true);
+  const planoAtivo = planos.find(p => p.id === planoId);
 
   const [fNome, setFNome] = useState('');
   const [fDescricaoCurta, setFDescricaoCurta] = useState('');
@@ -65,14 +56,34 @@ export default function NovoNacaoPage() {
   const [fCardeal, setFCardeal] = useState('');
   const [fEtnias, setFEtnias] = useState('');
   const [fLore, setFLore] = useState('');
+  const [toast, setToast] = useState<{ message: string; type?: 'error' | 'success' } | null>(null);
 
-  const criarNacao = () => {
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const data = await listPlanos();
+        setPlanos(data as Plano[]);
+      } catch (err) {
+        console.warn('Erro carregando planos do Supabase:', err);
+        setPlanos([]);
+      } finally {
+        setCarregandoPlanos(false);
+      }
+    })();
+  }, []);
+
+  React.useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const criarNacao = async () => {
     if (!fNome.trim()) {
-      alert('Nome da nação é obrigatório');
+      setToast({ message: 'Nome da nação é obrigatório.', type: 'error' });
       return;
     }
 
-    const nacoes = JSON.parse(localStorage.getItem('anthurium_nacoes') || JSON.stringify(nacoesIniciais));
     const novaNacao: Nacao = {
       id: fNome.toLowerCase().replace(/\s+/g, '-'),
       planoId,
@@ -85,10 +96,15 @@ export default function NovoNacaoPage() {
       lore: fLore
     };
 
-    const nacoesAtualizadas = [...nacoes, novaNacao];
-    localStorage.setItem('anthurium_nacoes', JSON.stringify(nacoesAtualizadas));
-
-    router.push(`/universo/atlas/${planoId}/nacao/${novaNacao.id}`);
+    try {
+      const criada = await upsertNacao(novaNacao);
+      localStorage.removeItem('anthurium_nacoes');
+      setToast({ message: 'Nação criada com sucesso.', type: 'success' });
+      router.push(`/universo/atlas/${planoId}/nacao/${criada.id}`);
+    } catch (err) {
+      console.error('Falha ao persistir nação no Supabase:', err);
+      setToast({ message: 'Nao foi possivel salvar no banco. Verifique policies/RLS e UUID.', type: 'error' });
+    }
   };
 
   return (
@@ -102,13 +118,19 @@ export default function NovoNacaoPage() {
 
       <div className="mb-8">
         <h2 className="text-2xl font-light text-white tracking-wide mb-2">Forjar Novo Ponto</h2>
-        <p className="text-xs text-zinc-500">em {planoAtivo.nome}</p>
+        <p className="text-xs text-zinc-500">em {planoAtivo?.nome || 'Plano'}</p>
       </div>
 
+      {!carregandoPlanos && !planoAtivo && (
+        <div className="mb-6 rounded border border-[#3b2020] bg-[#2a1111] p-3 text-xs text-red-300">
+          Plano não encontrado no banco. Cadastre o plano no Supabase antes de criar nações nele.
+        </div>
+      )}
+
       <form
-        onSubmit={e => {
+        onSubmit={async e => {
           e.preventDefault();
-          criarNacao();
+          await criarNacao();
         }}
         className="space-y-6 bg-[#0a0b0d] border border-[#c5a059]/20 p-8 rounded-lg"
       >
@@ -200,12 +222,18 @@ export default function NovoNacaoPage() {
           </Link>
           <button
             type="submit"
+            disabled={carregandoPlanos || !planoAtivo}
             className="px-6 py-3 bg-[#c5a059] text-black font-semibold rounded text-xs hover:bg-amber-600 transition-colors"
           >
             Forjar Nação
           </button>
         </div>
       </form>
+      {toast && (
+        <div className={`fixed left-1/2 -translate-x-1/2 bottom-8 z-50 rounded-md px-4 py-2 ${toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-green-400 text-black'}`}>
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }

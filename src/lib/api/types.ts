@@ -30,6 +30,7 @@ export interface Etnia {
   nome: string;
   descricao?: string;
   afinidades?: string[];
+  imagens?: string[];
 }
 
 export interface Npc {

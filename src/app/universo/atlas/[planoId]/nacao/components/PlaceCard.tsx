@@ -34,7 +34,7 @@ export default function PlaceCard({ lugar, onOpen, modoMestre }: Props) {
 
       {modoMestre && (
         <div className="mt-2 text-center">
-          <button className="text-[11px] px-3 py-1 rounded border border-[#22242b] text-zinc-300 hover:bg-[#111216]">Editar</button>
+          <button type="button" onClick={() => onOpen(lugar)} className="text-[11px] px-3 py-1 rounded border border-[#22242b] text-zinc-300 hover:bg-[#111216]">Editar</button>
         </div>
       )}
     </div>
